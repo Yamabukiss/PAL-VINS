@@ -19,7 +19,7 @@
 #include <sensor_msgs/NavSatFix.h>
 #include "estimator/estimator.h"
 #include "utility/visualization.h"
-
+#include"opencv2/imgcodecs/legacy/constants_c.h"
 using namespace std;
 using namespace Eigen;
 

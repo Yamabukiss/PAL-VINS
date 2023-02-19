@@ -19,7 +19,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include "estimator/estimator.h"
 #include "utility/visualization.h"
-
+#include"opencv2/imgcodecs/legacy/constants_c.h"
 using namespace std;
 using namespace Eigen;
 

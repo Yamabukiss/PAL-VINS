@@ -59,9 +59,9 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     last_average_parallax = 0;
     new_feature_num = 0;
     long_track_num = 0;
-    for (auto &id_pts : image)
+    for (auto &id_pts : image) // unit feature point
     {
-        FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
+        FeaturePerFrame f_per_fra(id_pts.second[0].second, td); //const Eigen::Matrix<double, 7, 1> &_point, double td
         assert(id_pts.second[0].first == 0);
         if(id_pts.second.size() == 2)
         {
@@ -69,24 +69,24 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
             assert(id_pts.second[1].first == 1);
         }
 
-        int feature_id = id_pts.first;
+        int feature_id = id_pts.first; // feature point id
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
-                          });
+                          }); // type of <it> is the element of feature which means FeaturePerId who is controled by id
 
-        if (it == feature.end())
+        if (it == feature.end()) // can not found in feature means first detect
         {
             feature.push_back(FeaturePerId(feature_id, frame_count));
-            feature.back().feature_per_frame.push_back(f_per_fra);
-            new_feature_num++;
+            feature.back().feature_per_frame.push_back(f_per_fra);// back means there will be a new FeaturePerId for this one(feature point)
+            new_feature_num++; // kind of how many new detected points?
         }
-        else if (it->feature_id == feature_id)
+        else if (it->feature_id == feature_id) // found it means have been detected
         {
             it->feature_per_frame.push_back(f_per_fra);
-            last_track_num++;
-            if( it-> feature_per_frame.size() >= 4)
-                long_track_num++;
+            last_track_num++; // kind of how many feature point been detected
+            if( it-> feature_per_frame.size() >= 4) // found this feature point by this id >=4 times
+                long_track_num++; // kind of how many long track points?
         }
     }
 
@@ -100,7 +100,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         if (it_per_id.start_frame <= frame_count - 2 &&
             it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
         {
-            parallax_sum += compensatedParallax2(it_per_id, frame_count);
+            parallax_sum += compensatedParallax2(it_per_id, frame_count); // calculate parallax between two frames
             parallax_num++;
         }
     }
@@ -114,7 +114,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         ROS_DEBUG("parallax_sum: %lf, parallax_num: %d", parallax_sum, parallax_num);
         ROS_DEBUG("current parallax: %lf", parallax_sum / parallax_num * FOCAL_LENGTH);
         last_average_parallax = parallax_sum / parallax_num * FOCAL_LENGTH;
-        return parallax_sum / parallax_num >= MIN_PARALLAX;
+        return parallax_sum / parallax_num >= MIN_PARALLAX; // when larger than min parallax return ture
     }
 }
 
@@ -285,8 +285,8 @@ void FeatureManager::initFramePoseByPnP(int frameCnt, Vector3d Ps[], Matrix3d Rs
         // trans to w_T_cam
         RCam = Rs[frameCnt - 1] * ric[0];
         PCam = Rs[frameCnt - 1] * tic[0] + Ps[frameCnt - 1];
-
-        if(solvePoseByPnP(RCam, PCam, pts2D, pts3D))
+        //above R/Pcam is from imuRT and extrinsic between imu and camera
+        if(solvePoseByPnP(RCam, PCam, pts2D, pts3D)) // Rcam and Pcam will be updated after pnp success
         {
             // trans to w_T_imu
             Rs[frameCnt] = RCam * ric[0].transpose(); 
@@ -312,6 +312,7 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
             Eigen::Matrix<double, 3, 4> leftPose;
             Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
             Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];
+            // make r and t for world2cam
             leftPose.leftCols<3>() = R0.transpose();
             leftPose.rightCols<1>() = -R0.transpose() * t0;
             //cout << "left pose " << leftPose << endl;
@@ -330,7 +331,7 @@ void FeatureManager::triangulate(int frameCnt, Vector3d Ps[], Matrix3d Rs[], Vec
             //cout << "point0 " << point0.transpose() << endl;
             //cout << "point1 " << point1.transpose() << endl;
 
-            triangulatePoint(leftPose, rightPose, point0, point1, point3d);
+            triangulatePoint(leftPose, rightPose, point0, point1, point3d); // triangulate results save in point3d
             Eigen::Vector3d localPoint;
             localPoint = leftPose.leftCols<3>() * point3d + leftPose.rightCols<1>();
             double depth = localPoint.z();

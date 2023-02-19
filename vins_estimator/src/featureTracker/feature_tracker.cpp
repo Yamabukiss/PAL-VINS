@@ -10,7 +10,7 @@
  *******************************************************/
 
 #include "feature_tracker.h"
-
+#include<opencv2/imgproc/types_c.h>
 bool FeatureTracker::inBorder(const cv::Point2f &pt)
 {
     const int BORDER_SIZE = 1;
@@ -52,16 +52,16 @@ FeatureTracker::FeatureTracker()
     hasPrediction = false;
 }
 
-void FeatureTracker::setMask()
+void FeatureTracker::setMask() // it works for cv::goodFeaturesToTrack
 {
-    mask = cv::Mat(row, col, CV_8UC1, cv::Scalar(255));
+    mask = cv::Mat(row, col, CV_8UC1, cv::Scalar(255)); // the mask size is the same of origin image size
 
     // prefer to keep features that are tracked for long time
-    vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;
+    vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id; //like it said represent three things : track_count feature_points feature_point_id
 
     for (unsigned int i = 0; i < cur_pts.size(); i++)
-        cnt_pts_id.push_back(make_pair(track_cnt[i], make_pair(cur_pts[i], ids[i])));
-
+        cnt_pts_id.push_back(make_pair(track_cnt[i], make_pair(cur_pts[i], ids[i]))); // track_cnt means track count
+    //sorted by the track count
     sort(cnt_pts_id.begin(), cnt_pts_id.end(), [](const pair<int, pair<cv::Point2f, int>> &a, const pair<int, pair<cv::Point2f, int>> &b)
          {
             return a.first > b.first;
@@ -78,7 +78,7 @@ void FeatureTracker::setMask()
             cur_pts.push_back(it.second.first);
             ids.push_back(it.second.second);
             track_cnt.push_back(it.first);
-            cv::circle(mask, it.second.first, MIN_DIST, 0, -1);
+            cv::circle(mask, it.second.first, MIN_DIST, 0, -1); // the color 0 means turn the tracked point's location to 0 at mask
         }
     }
 }
@@ -93,7 +93,7 @@ double FeatureTracker::distance(cv::Point2f &pt1, cv::Point2f &pt2)
 
 map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackImage(double _cur_time, const cv::Mat &_img, const cv::Mat &_img1)
 {
-    TicToc t_r;
+    TicToc t_r; // like it said tic and toc->calculate the time cost
     cur_time = _cur_time;
     cur_img = _img;
     row = cur_img.rows;
@@ -114,12 +114,12 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         TicToc t_o;
         vector<uchar> status;
         vector<float> err;
-        if(hasPrediction)
+        if(hasPrediction) // like it said initialize finish->at least second frame
         {
             cur_pts = predict_pts;
             cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 1, 
-            cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW);
-            
+            cv::TermCriteria(cv::TermCriteria::COUNT+cv::TermCriteria::EPS, 30, 0.01), cv::OPTFLOW_USE_INITIAL_FLOW); // the status will be set to 1 if tracked successed
+
             int succ_num = 0;
             for (size_t i = 0; i < status.size(); i++)
             {
@@ -129,7 +129,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             if (succ_num < 10)
                cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 3);
         }
-        else
+        else // no prediction situation
             cv::calcOpticalFlowPyrLK(prev_img, cur_img, prev_pts, cur_pts, status, err, cv::Size(21, 21), 3);
         // reverse check
         if(FLOW_BACK)
@@ -141,7 +141,7 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             //cv::calcOpticalFlowPyrLK(cur_img, prev_img, cur_pts, reverse_pts, reverse_status, err, cv::Size(21, 21), 3); 
             for(size_t i = 0; i < status.size(); i++)
             {
-                if(status[i] && reverse_status[i] && distance(prev_pts[i], reverse_pts[i]) <= 0.5)
+                if(status[i] && reverse_status[i] && distance(prev_pts[i], reverse_pts[i]) <= 0.5) // represent the fouth parameter will be update after opticalFlow processed
                 {
                     status[i] = 1;
                 }
@@ -151,17 +151,17 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         }
         
         for (int i = 0; i < int(cur_pts.size()); i++)
-            if (status[i] && !inBorder(cur_pts[i]))
+            if (status[i] && !inBorder(cur_pts[i])) // skip the points out of img
                 status[i] = 0;
         reduceVector(prev_pts, status);
         reduceVector(cur_pts, status);
         reduceVector(ids, status);
-        reduceVector(track_cnt, status);
+        reduceVector(track_cnt, status); // like it said reduce the untracked points
         ROS_DEBUG("temporal optical flow costs: %fms", t_o.toc());
         //printf("track cnt %d\n", (int)ids.size());
     }
 
-    for (auto &n : track_cnt)
+    for (auto &n : track_cnt) // track count for feature points
         n++;
 
     if (1)
@@ -181,8 +181,9 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
                 cout << "mask is empty " << endl;
             if (mask.type() != CV_8UC1)
                 cout << "mask type wrong " << endl;
-            cv::goodFeaturesToTrack(cur_img, n_pts, MAX_CNT - cur_pts.size(), 0.01, MIN_DIST, mask);
+            cv::goodFeaturesToTrack(cur_img, n_pts, MAX_CNT - cur_pts.size(), 0.01, MIN_DIST, mask);// deal with the situation when feature points are not tracked enough (MAX_CNT)
         }
+        // n_pts-> the container of extra compensatory points
         else
             n_pts.clear();
         ROS_DEBUG("detect feature costs: %f ms", t_t.toc());
@@ -196,9 +197,9 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         //printf("feature cnt after add %d\n", (int)ids.size());
     }
 
-    cur_un_pts = undistortedPts(cur_pts, m_camera[0]);
-    pts_velocity = ptsVelocity(ids, cur_un_pts, cur_un_pts_map, prev_un_pts_map);
-
+    cur_un_pts = undistortedPts(cur_pts, m_camera[0]); // un means unit change the point to the normalized camera coordinate system
+    pts_velocity = ptsVelocity(ids, cur_un_pts, cur_un_pts_map, prev_un_pts_map); // first frame velocity will be seted to 0
+    // left got points,id,track count,unit points,unit velocity
     if(!_img1.empty() && stereo_cam)
     {
         ids_right.clear();
@@ -239,25 +240,26 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
             reduceVector(pts_velocity, status);
             */
             cur_un_right_pts = undistortedPts(cur_right_pts, m_camera[1]);
-            right_pts_velocity = ptsVelocity(ids_right, cur_un_right_pts, cur_un_right_pts_map, prev_un_right_pts_map);
+            right_pts_velocity = ptsVelocity(ids_right, cur_un_right_pts, cur_un_right_pts_map, prev_un_right_pts_map); //return the points velocity
         }
         prev_un_right_pts_map = cur_un_right_pts_map;
     }
+    // right got points,id,unit points,unit velocity; no track count
     if(SHOW_TRACK)
         drawTrack(cur_img, rightImg, ids, cur_pts, cur_right_pts, prevLeftPtsMap);
-
+    //reload all prev parametersk
     prev_img = cur_img;
     prev_pts = cur_pts;
     prev_un_pts = cur_un_pts;
-    prev_un_pts_map = cur_un_pts_map;
+    prev_un_pts_map = cur_un_pts_map; //map for id and points
     prev_time = cur_time;
     hasPrediction = false;
 
-    prevLeftPtsMap.clear();
+    prevLeftPtsMap.clear();//map for id and points
     for(size_t i = 0; i < cur_pts.size(); i++)
         prevLeftPtsMap[ids[i]] = cur_pts[i];
 
-    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
+    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame; // feature points_id<camera 0/1,features> it's for feature points
     for (size_t i = 0; i < ids.size(); i++)
     {
         int feature_id = ids[i];
@@ -268,8 +270,8 @@ map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> FeatureTracker::trackIm
         double p_u, p_v;
         p_u = cur_pts[i].x;
         p_v = cur_pts[i].y;
-        int camera_id = 0;
-        double velocity_x, velocity_y;
+        int camera_id = 0; // represent the left camera
+        double velocity_x, velocity_y; // unit x y velocity
         velocity_x = pts_velocity[i].x;
         velocity_y = pts_velocity[i].y;
 

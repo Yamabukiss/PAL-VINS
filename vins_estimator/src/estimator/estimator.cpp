@@ -160,13 +160,13 @@ void Estimator::changeSensorType(int use_imu, int use_stereo)
 void Estimator::inputImage(double t, const cv::Mat &_img, const cv::Mat &_img1)
 {
     inputImageCnt++;
-    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame;
+    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> featureFrame; //feature_id pair <camera_id（0 or 1）, xyz_uv_velocity-xy-in-pixel-coordinate>
     TicToc featureTrackerTime;
 
     if(_img1.empty())
         featureFrame = featureTracker.trackImage(t, _img);
     else
-        featureFrame = featureTracker.trackImage(t, _img, _img1);
+        featureFrame = featureTracker.trackImage(t, _img, _img1); // featureTracker is class type
     //printf("featureTracker time: %f\n", featureTrackerTime.toc());
 
     if (SHOW_TRACK)
@@ -248,6 +248,7 @@ bool Estimator::getIMUInterval(double t0, double t1, vector<pair<double, Eigen::
             gyrVector.push_back(gyrBuf.front());
             gyrBuf.pop();
         }
+        // dump above
         accVector.push_back(accBuf.front());
         gyrVector.push_back(gyrBuf.front());
     }
@@ -293,7 +294,7 @@ void Estimator::processMeasurements()
             }
             mBuf.lock();
             if(USE_IMU)
-                getIMUInterval(prevTime, curTime, accVector, gyrVector);
+                getIMUInterval(prevTime, curTime, accVector, gyrVector); // got information in the two vector
 
             featureBuf.pop();
             mBuf.unlock();
@@ -314,8 +315,10 @@ void Estimator::processMeasurements()
                     processIMU(accVector[i].first, dt, accVector[i].second, gyrVector[i].second);
                 }
             }
+            // now we got pvr of two frames
             mProcess.lock();
             processImage(feature.second, feature.first);
+            // after this , all para are ready for publishing
             prevTime = curTime;
 
             printStatistics(*this, 0);
@@ -371,7 +374,7 @@ void Estimator::initFirstPose(Eigen::Vector3d p, Eigen::Matrix3d r)
     initR = r;
 }
 
-
+// imu pre_intergrations
 void Estimator::processIMU(double t, double dt, const Vector3d &linear_acceleration, const Vector3d &angular_velocity)
 {
     if (!first_imu)
@@ -387,7 +390,7 @@ void Estimator::processIMU(double t, double dt, const Vector3d &linear_accelerat
     }
     if (frame_count != 0)
     {
-        pre_integrations[frame_count]->push_back(dt, linear_acceleration, angular_velocity);
+        pre_integrations[frame_count]->push_back(dt, linear_acceleration, angular_velocity); // here -> is represent the pre_intergrations
         //if(solver_flag != NON_LINEAR)
             tmp_pre_integration->push_back(dt, linear_acceleration, angular_velocity);
 
@@ -429,18 +432,18 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     Headers[frame_count] = header;
 
     ImageFrame imageframe(image, header);
-    imageframe.pre_integration = tmp_pre_integration;
+    imageframe.pre_integration = tmp_pre_integration; // calculate pre_integration from past to now
     all_image_frame.insert(make_pair(header, imageframe));
-    tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
+    tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]}; // reload pre_intergration class
 
     if(ESTIMATE_EXTRINSIC == 2)
     {
         ROS_INFO("calibrating extrinsic param, rotation movement is needed");
         if (frame_count != 0)
         {
-            vector<pair<Vector3d, Vector3d>> corres = f_manager.getCorresponding(frame_count - 1, frame_count);
+            vector<pair<Vector3d, Vector3d>> corres = f_manager.getCorresponding(frame_count - 1, frame_count); // make pair of picture between now and prev frame img 's landmarks
             Matrix3d calib_ric;
-            if (initial_ex_rotation.CalibrationExRotation(corres, pre_integrations[frame_count]->delta_q, calib_ric))
+            if (initial_ex_rotation.CalibrationExRotation(corres, pre_integrations[frame_count]->delta_q, calib_ric)) // init extrinsic rotation between imu and camera
             {
                 ROS_WARN("initial extrinsic rotation calib success");
                 ROS_WARN_STREAM("initial extrinsic rotation: " << endl << calib_ric);
@@ -480,9 +483,9 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         // stereo + IMU initilization
         if(STEREO && USE_IMU)
         {
-            f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric);
-            f_manager.triangulate(frame_count, Ps, Rs, tic, ric);
-            if (frame_count == WINDOW_SIZE)
+            f_manager.initFramePoseByPnP(frame_count, Ps, Rs, tic, ric); //  ps rs is w_t_imu,ric tic is r and t between imu and camera;after this the p r will be updated more accurate (w_2_imu)
+            f_manager.triangulate(frame_count, Ps, Rs, tic, ric); // after triangulate,feature points depth will be seted
+            if (frame_count == WINDOW_SIZE) // untill slide window filled full,they will be sended to optimizer
             {
                 map<double, ImageFrame>::iterator frame_it;
                 int i = 0;
@@ -495,7 +498,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                 solveGyroscopeBias(all_image_frame, Bgs);
                 for (int i = 0; i <= WINDOW_SIZE; i++)
                 {
-                    pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]);
+                    pre_integrations[i]->repropagate(Vector3d::Zero(), Bgs[i]); // update the pre_intergrations
                 }
                 optimization();
                 updateLatestStates();
@@ -1018,14 +1021,14 @@ void Estimator::optimization()
         problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);
         if(USE_IMU)
             problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
-    }
+    } // add pose velocity bias
     if(!USE_IMU)
         problem.SetParameterBlockConstant(para_Pose[0]);
 
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE, local_parameterization);
+        problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE, local_parameterization); //add extinsic param
         if ((ESTIMATE_EXTRINSIC && frame_count == WINDOW_SIZE && Vs[0].norm() > 0.2) || openExEstimation)
         {
             //ROS_INFO("estimate extinsic param");
@@ -1037,17 +1040,17 @@ void Estimator::optimization()
             problem.SetParameterBlockConstant(para_Ex_Pose[i]);
         }
     }
-    problem.AddParameterBlock(para_Td[0], 1);
+    problem.AddParameterBlock(para_Td[0], 1); // add td
 
     if (!ESTIMATE_TD || Vs[0].norm() < 0.2)
         problem.SetParameterBlockConstant(para_Td[0]);
-
+    // under start create residual block (like residual edge in pose graph)
     if (last_marginalization_info && last_marginalization_info->valid)
     {
         // construct new marginlization_factor
         MarginalizationFactor *marginalization_factor = new MarginalizationFactor(last_marginalization_info);
         problem.AddResidualBlock(marginalization_factor, NULL,
-                                 last_marginalization_parameter_blocks);
+                                 last_marginalization_parameter_blocks); //prev residual from marginalization
     }
     if(USE_IMU)
     {
@@ -1057,7 +1060,7 @@ void Estimator::optimization()
             if (pre_integrations[j]->sum_dt > 10.0)
                 continue;
             IMUFactor* imu_factor = new IMUFactor(pre_integrations[j]);
-            problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
+            problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]); // of two frames
         }
     }
 
@@ -1073,7 +1076,7 @@ void Estimator::optimization()
 
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
         
-        Vector3d pts_i = it_per_id.feature_per_frame[0].point;
+        Vector3d pts_i = it_per_id.feature_per_frame[0].point; // i is the first frame
 
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
@@ -1081,12 +1084,14 @@ void Estimator::optimization()
             if (imu_i != imu_j)
             {
                 Vector3d pts_j = it_per_frame.point;
+                // create projection err
                 ProjectionTwoFrameOneCamFactor *f_td = new ProjectionTwoFrameOneCamFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
                                                                  it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td);
                 problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
+                // optimizer first frame pose,current pose,ex pose between imu and camera,depth and td
             }
 
-            if(STEREO && it_per_frame.is_stereo)
+            if(STEREO && it_per_frame.is_stereo) // optimizer above parameter in stereo err
             {                
                 Vector3d pts_j_right = it_per_frame.pointRight;
                 if(imu_i != imu_j)
@@ -1110,6 +1115,7 @@ void Estimator::optimization()
     ROS_DEBUG("visual measurement count: %d", f_m_cnt);
     //printf("prepare for ceres: %f \n", t_prepare.toc());
 
+    // now set parameter for optimizer
     ceres::Solver::Options options;
 
     options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -1130,12 +1136,13 @@ void Estimator::optimization()
     ROS_DEBUG("Iterations : %d", static_cast<int>(summary.iterations.size()));
     //printf("solver costs: %f \n", t_solver.toc());
 
+    // optimizer finish update parameter
     double2vector();
     //printf("frame_count: %d \n", frame_count);
 
     if(frame_count < WINDOW_SIZE)
         return;
-    
+    // under marginalization
     TicToc t_whole_marginalization;
     if (marginalization_flag == MARGIN_OLD)
     {
@@ -1470,7 +1477,7 @@ void Estimator::predictPtsInNextFrame()
     Eigen::Matrix4d curT, prevT, nextT;
     getPoseInWorldFrame(curT);
     getPoseInWorldFrame(frame_count - 1, prevT);
-    nextT = curT * (prevT.inverse() * curT);
+    nextT = curT * (prevT.inverse() * curT); // interesting,do not know why
     map<int, Eigen::Vector3d> predictPts;
 
     for (auto &it_per_id : f_manager.feature)
@@ -1568,6 +1575,7 @@ void Estimator::outliersRejection(set<int> &removeIndex)
     }
 }
 
+// update latest imu formation ; use last time imu formation (they are the same but different time?) for update
 void Estimator::fastPredictIMU(double t, Eigen::Vector3d linear_acceleration, Eigen::Vector3d angular_velocity)
 {
     double dt = t - latest_time;
